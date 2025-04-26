@@ -27,21 +27,10 @@ class GroqTranslator(CommonTranslator):
     _CONFIG_KEY = 'groq'
     _MAX_CONTEXT = int(os.environ.get('CONTEXT_LENGTH', '20'))
 
+    # Updated system prompt: disallow internal reasoning tags
     _CHAT_SYSTEM_TEMPLATE = (
-        "You are a professional manga translation engine. Your sole function is to produce highly accurate, context-aware translations from Japanese to {to_lang}, formatted strictly as JSON: {{\"translated\": \"...\"}}.\n\n"
-        "Analyze prior and current panels as an interconnected narrative. Consider speaker tone, implied relationships, and sequential dialogue to deliver the most accurate meaning possible.\n\n"
-        "Obey these rules:\n"
-        "1. Translate accurately with contextual precision—do not over-literalize nor over-localize.\n"
-        "2. Preserve honorifics, Japanese names, and cultural expressions as-is (e.g., '-san', 'Senpai'). Do not convert them.\n"
-        "3. Do not infer or assign gender unless explicitly stated. Default to neutral language or implicit phrasing.\n"
-        "4. Proper names must follow standard Hepburn romanization.\n"
-        "5. For ambiguous or slang terms, choose the most common meaning unless context indicates otherwise.\n"
-        "6. Preserve original meaning and nuance.\n"
-        "7. Output only JSON: {{\"translated\": \"...\"}}\n"
-        "8. Retain onomatopoeia and sound effects unless context requires translation.\n"
-        "9. Maintain a natural, anime-style cadence.\n"
-        "10. Keep translation length close to the original.\n\n"
-        "Translate now into {to_lang} and return only JSON."
+        "You are a professional manga translation engine. Do not output any internal reasoning or <think> sections—return only the JSON object: {\"translated\": \"...\"}.\n"
+        "Analyze prior and current panels in sequence. Preserve honorifics, names, and tone. Output only JSON: {\"translated\": \"...\"}.\n"
     )
 
     _CHAT_SAMPLE = [
@@ -98,16 +87,20 @@ class GroqTranslator(CommonTranslator):
         return results
 
     async def _request_translation(self, to_lang: str, prompt: str) -> dict:
+        # Build prompt with explicit JSON request
         prompt_with_lang = (
             f"Translate the following text into {to_lang}. Return the result in JSON format.\n\n"
             f"{{\"untranslated\": \"{prompt}\"}}\n"
         )
+        # Append to context
         self.messages.append({'role': 'user', 'content': prompt_with_lang})
         if len(self.messages) > self._MAX_CONTEXT:
             self.messages = self.messages[-self._MAX_CONTEXT:]
 
+        # System message enforces no think tags
         system_msg = {'role': 'system', 'content': self.chat_system_template.format(to_lang=to_lang)}
 
+        # API call
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=[system_msg] + self.messages,
@@ -116,22 +109,33 @@ class GroqTranslator(CommonTranslator):
             top_p=self.top_p
         )
 
+        # Update token usage
         self.token_count += response.usage.total_tokens
         self.token_count_last = response.usage.total_tokens
 
-        raw = response.choices[0].message.content.strip()
+        # Raw output
+        raw = response.choices[0].message.content
 
+        # 1) Strip any <think>...</think> sections
+        cleaned = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL)
+        # 2) Extract the first JSON object
+        m = re.search(r'\{.*?\}', cleaned, flags=re.DOTALL)
+        json_str = m.group(0) if m else cleaned
+
+        # 3) Parse JSON
         try:
-            data = json.loads(raw)
+            data = json.loads(json_str)
         except json.JSONDecodeError:
-            # Remove any leading 'translated":'
-            cleaned = re.sub(r'^\s*"?translated"?\s*:\s*', '', raw)
-            cleaned = cleaned.strip(' \"{}')
-            data = {"translated": cleaned}
+            # Fallback: remove any leading key and braces
+            fallback = re.sub(r'^\s*"?translated"?\s*:\s*', '', json_str)
+            fallback = fallback.strip(' \"{}')
+            data = {"translated": fallback}
 
+        # Maintain context if enabled
         if self._CONTEXT_RETENTION:
-            self.messages.append({'role': 'assistant', 'content': raw})
+            self.messages.append({'role': 'assistant', 'content': json_str})
         else:
+            # remove last assistant message if it was inserted
             if self.messages and self.messages[-1]['role'] == 'assistant':
                 self.messages.pop()
 
