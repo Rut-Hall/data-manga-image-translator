@@ -1,6 +1,7 @@
 import groq
 import os
 import json
+import re
 from typing import List
 
 from .common import CommonTranslator, MissingAPIKeyException
@@ -26,32 +27,30 @@ class GroqTranslator(CommonTranslator):
     _CONFIG_KEY = 'groq'
     _MAX_CONTEXT = int(os.environ.get('CONTEXT_LENGTH', '20'))
 
-    # Note: JSON braces are escaped by doubling for Python str.format
     _CHAT_SYSTEM_TEMPLATE = (
         "You are a professional manga translation engine. Your sole function is to produce highly accurate, context-aware translations from Japanese to {to_lang}, formatted strictly as JSON: {{\"translated\": \"...\"}}.\n\n"
         "Analyze prior and current panels as an interconnected narrative. Consider speaker tone, implied relationships, and sequential dialogue to deliver the most accurate meaning possible.\n\n"
         "Obey these rules:\n"
         "1. Translate accurately with contextual precision—do not over-literalize nor over-localize.\n"
-        "2. Preserve honorifics, Japanese names, and cultural expressions as-is (e.g., '-san', 'Senpai'). Do not convert them.\n"
+        "2. Preserve honorifics, Japanese names, and cultural expressions as-is. Do not convert them.\n"
         "3. Do not infer or assign gender unless explicitly stated. Default to neutral language or implicit phrasing.\n"
-        "4. Proper names must follow standard Hepburn romanization and be preserved exactly as in the source (e.g., '弥生' → 'Yayoi').\n"
-        "5. For ambiguous or slang terms, choose the most common conversational meaning unless context indicates otherwise. If uncertain, use phonetic transliteration.\n"
-        "6. Preserve original meaning and nuance. Imperatives, questions, emotional tone, and slang must match intent.\n"
-        "7. Do not summarize or explain. Do not include any output except: {{\"translated\": \"...\"}}\n"
-        "8. Retain original onomatopoeia and sound effects unless context explicitly requires translation.\n"
-        "9. Maintain a natural, anime-style cadence and tone when translating dialogue.\n"
-        "10. Do not expand or compress the text significantly. Keep translation length close to the original where possible.\n\n"
-        "Remember: You are a language model tuned specifically for manga. Your job is to make the reading experience smooth, authentic, and respectful to the source material.\n"
+        "4. Proper names must follow standard Hepburn romanization.\n"
+        "5. For ambiguous or slang terms, choose the most common meaning unless context indicates otherwise.\n"
+        "6. Preserve original meaning and nuance.\n"
+        "7. Output only JSON: {{\"translated\": \"...\"}}\n"
+        "8. Retain onomatopoeia and sound effects unless context requires translation.\n"
+        "9. Maintain a natural, anime-style cadence.\n"
+        "10. Keep translation length close to the original.\n\n"
         "Translate now into {to_lang} and return only JSON."
     )
 
     _CHAT_SAMPLE = [
         (
-            'Translate into English. Return the result in JSON format.\n'
-            '{{"untranslated": "<|1|>恥ずかしい… 目立ちたくない… 私が消えたい…\\n<|2|>きみ… 大丈夫⁉\\n<|3|>なんだこいつ 空気読めて ないのか…？"}}\n'
+            'Translate into English. Return result in JSON.\n'
+            '{{"untranslated": "<|1|>恥ずかしい…\\n<|2|>きみ…"}}\n'
         ),
         (
-            '{{"translated": "<|1|>So embarrassing… I don’t want to stand out… I wish I could disappear…\\n<|2|>Hey… Are you okay!?\\n<|3|>What’s with this person? Can’t they read the room…?"}}'
+            '{{"translated": "So embarrassing…\\nHey…"}}'
         )
     ]
 
@@ -59,7 +58,7 @@ class GroqTranslator(CommonTranslator):
         super().__init__()
         self.client = groq.AsyncGroq(api_key=GROQ_API_KEY)
         if not self.client.api_key and check_groq_key:
-            raise MissingAPIKeyException('Please set the GROQ_API_KEY environment variable before using the Groq translator.')
+            raise MissingAPIKeyException('Please set the GROQ_API_KEY environment variable.')
         self.token_count = 0
         self.token_count_last = 0
         self.config = None
@@ -114,8 +113,7 @@ class GroqTranslator(CommonTranslator):
             messages=[system_msg] + self.messages,
             max_tokens=self._MAX_TOKENS // 2,
             temperature=self.temperature,
-            top_p=self.top_p,
-            stop=["}"]
+            top_p=self.top_p
         )
 
         self.token_count += response.usage.total_tokens
@@ -126,7 +124,9 @@ class GroqTranslator(CommonTranslator):
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
-            cleaned = raw.strip('{}\"')
+            # Remove any leading 'translated":'
+            cleaned = re.sub(r'^\s*"?translated"?\s*:\s*', '', raw)
+            cleaned = cleaned.strip(' \"{}')
             data = {"translated": cleaned}
 
         if self._CONTEXT_RETENTION:
