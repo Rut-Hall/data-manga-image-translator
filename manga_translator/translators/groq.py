@@ -35,7 +35,7 @@ class GroqTranslator(CommonTranslator):
         "2. Preserve honorifics, Japanese names, and cultural expressions as-is (e.g., '-san', 'Senpai'). Do not convert them.\n"
         "3. Do not infer or assign gender unless explicitly stated. Default to neutral language or implicit phrasing.\n"
         "4. Proper names must follow standard Hepburn romanization.\n"
-        "5. For ambiguous or slang terms, choose the most common meaning unless context indicates otherwise.\n"
+        "5. For ambiguous or slang terms, choose the most common meaning unless context indicates otherwise. If uncertain, use phonetic transliteration.\n"
         "6. Preserve original meaning and nuance.\n"
         "7. Output only JSON: {{\"translated\": \"...\"}}\n"
         "8. Retain onomatopoeia and sound effects unless context requires translation.\n"
