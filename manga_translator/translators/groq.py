@@ -98,6 +98,7 @@ class GroqTranslator(CommonTranslator):
         return results
 
     async def _request_translation(self, to_lang: str, prompt: str) -> dict:
+        # 1) Build the user prompt
         prompt_with_lang = (
             f"Translate the following text into {to_lang}. Return the result in JSON format.\n\n"
             f"{{\"untranslated\": \"{prompt}\"}}\n"
@@ -106,8 +107,13 @@ class GroqTranslator(CommonTranslator):
         if len(self.messages) > self._MAX_CONTEXT:
             self.messages = self.messages[-self._MAX_CONTEXT:]
 
-        system_msg = {'role': 'system', 'content': self.chat_system_template.format(to_lang=to_lang)}
+        # 2) System message (with your full template)
+        system_msg = {
+            'role': 'system',
+            'content': self.chat_system_template.format(to_lang=to_lang)
+        }
 
+        # 3) Call the API
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=[system_msg] + self.messages,
@@ -116,22 +122,34 @@ class GroqTranslator(CommonTranslator):
             top_p=self.top_p
         )
 
+        # 4) Update token usage
         self.token_count += response.usage.total_tokens
         self.token_count_last = response.usage.total_tokens
 
-        raw = response.choices[0].message.content.strip()
+        # 5) Grab raw output
+        raw = response.choices[0].message.content
 
+        # 6) Strip out any <think>…</think> blocks
+        cleaned = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL)
+
+        # 7) Extract the first JSON object
+        match = re.search(r'\{.*?\}', cleaned, flags=re.DOTALL)
+        json_str = match.group(0) if match else cleaned
+
+        # 8) Parse JSON safely
         try:
-            data = json.loads(raw)
+            data = json.loads(json_str)
         except json.JSONDecodeError:
-            # Remove any leading 'translated":'
-            cleaned = re.sub(r'^\s*"?translated"?\s*:\s*', '', raw)
-            cleaned = cleaned.strip(' \"{}')
-            data = {"translated": cleaned}
+            # Fallback: remove any leading 'translated":'
+            fallback = re.sub(r'^\s*"?translated"?\s*:\s*', '', json_str)
+            fallback = fallback.strip(' \'"{}')
+            data = {"translated": fallback}
 
+        # 9) Context retention
         if self._CONTEXT_RETENTION:
-            self.messages.append({'role': 'assistant', 'content': raw})
+            self.messages.append({'role': 'assistant', 'content': json_str})
         else:
+            # remove any placeholder assistant message
             if self.messages and self.messages[-1]['role'] == 'assistant':
                 self.messages.pop()
 
