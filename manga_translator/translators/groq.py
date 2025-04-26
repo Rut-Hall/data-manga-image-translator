@@ -68,6 +68,14 @@ class GroqTranslator(CommonTranslator):
             {'role': 'assistant', 'content': self.chat_sample[1]}
         ]
 
+    def _config_get(self, key: str, default=None):
+        """
+        Retrieve configuration overrides, defaulting to built-in values.
+        """
+        if not self.config:
+            return default
+        return self.config.get(f"{self._CONFIG_KEY}.{key}", self.config.get(key, default))
+
     @property
     def chat_system_template(self) -> str:
         return self._config_get('chat_system_template', self._CHAT_SYSTEM_TEMPLATE)
@@ -88,7 +96,6 @@ class GroqTranslator(CommonTranslator):
         results = []
         for prompt in queries:
             response = await self._request_translation(to_lang, prompt)
-            # response is now a dict, extract the translated text
             results.append(response.get("translated", ""))
         self.logger.info(f'Used {self.token_count_last} tokens (Total: {self.token_count})')
         return results
@@ -124,11 +131,11 @@ class GroqTranslator(CommonTranslator):
         # Raw content
         raw = response.choices[0].message.content.strip()
 
-        # Clean and parse JSON
+        # Attempt JSON parse
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
-            # Fallback: try to extract the translated value
+            # Fallback: wrap raw text
             cleaned = raw.strip('{}\"')
             data = {"translated": cleaned}
 
@@ -136,6 +143,7 @@ class GroqTranslator(CommonTranslator):
         if self._CONTEXT_RETENTION:
             self.messages.append({'role': 'assistant', 'content': raw})
         else:
-            self.messages.pop()
+            if self.messages and self.messages[-1]['role'] == 'assistant':
+                self.messages.pop()
 
         return data
