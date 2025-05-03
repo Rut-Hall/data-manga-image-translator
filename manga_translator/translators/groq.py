@@ -39,7 +39,7 @@ class GroqTranslator(CommonTranslator):
         "6. Preserve original meaning, nuance, and mood—ensure the force, intent, and emotional tone of imperatives, questions, exclamations, and slang carry over naturally.\n"
         "7. Output only JSON: {{\"translated\": \"...\"}}\n"
         "8. Retain onomatopoeia and sound effects unless context requires translation.\n"
-        "9. Maintain a natural, anime-style cadence.\n"
+        "9. Maintain a natural, anime-style cadence and tone when translating dialogue.\n"
         "10. Keep translation length close to the original.\n\n"
         "Translate now into {to_lang} and return only JSON."
     )
