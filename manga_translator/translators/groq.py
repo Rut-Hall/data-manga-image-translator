@@ -36,7 +36,7 @@ class GroqTranslator(CommonTranslator):
         "3. Do not infer or assign gender unless explicitly stated. Default to neutral language or implicit phrasing.\n"
         "4. Proper names must follow standard Hepburn romanization (e.g., メア → Mea).\n"
         "5. For ambiguous or slang terms, choose the most common meaning unless context indicates otherwise. If uncertain, use phonetic transliteration.\n"
-        "6. Preserve original meaning and nuance. Imperatives, questions, emotional tone, and slang must match intent.\n"
+        "6. Preserve original meaning, nuance, and mood—ensure the force, intent, and emotional tone of imperatives, questions, exclamations, and slang carry over naturally.\n"
         "7. Output only JSON: {{\"translated\": \"...\"}}\n"
         "8. Retain onomatopoeia and sound effects unless context requires translation.\n"
         "9. Maintain a natural, anime-style cadence.\n"
