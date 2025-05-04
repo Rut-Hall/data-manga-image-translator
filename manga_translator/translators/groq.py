@@ -40,7 +40,8 @@ class GroqTranslator(CommonTranslator):
         "7. Output only JSON: {{\"translated\": \"...\"}}\n"
         "8. Retain onomatopoeia and sound effects unless context requires translation.\n"
         "9. Maintain a natural, anime-style cadence.\n"
-        "10. Keep translation length close to the original.\n\n"
+        "10. Keep translation length close to the original.\n"
+        "11. Consistently map recurring honorifics/names and mirror any dialect or archaism in an English register.\n\n"
         "Translate now into {to_lang} and return only JSON."
     )
 
