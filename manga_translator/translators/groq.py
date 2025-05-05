@@ -32,7 +32,7 @@ class GroqTranslator(CommonTranslator):
         "Analyze prior and current panels as an interconnected narrative. Consider speaker tone, implied relationships, and sequential dialogue to deliver the most accurate meaning possible.\n\n"
         "Obey these rules:\n"
         "1. Translate accurately with contextual precision—do not over-literalize nor over-localize.\n"
-        "2. Preserve honorifics, Japanese names, and cultural expressions as-is (e.g., '-san', '-sama'). Do not convert them.\n"
+        "2. Preserve honorifics, Japanese names, and cultural expressions as-is. Do not convert them.\n"
         "3. Do not infer or assign gender unless explicitly stated. Default to neutral language or implicit phrasing.\n"
         "4. Proper names must follow standard Hepburn romanization (e.g., メア → Mea).\n"
         "5. For slang or ambiguous terms, use the most common neutral meaning if clear; if uncertain or overly specific, default to phonetic transliteration.\n"
