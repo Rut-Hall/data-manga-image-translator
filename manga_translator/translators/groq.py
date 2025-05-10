@@ -34,7 +34,7 @@ class GroqTranslator(CommonTranslator):
         "1. Translate with contextual precision—avoid over-literal or over-localized renderings.\n"
         "2. Preserve honorifics, Japanese names, and cultural expressions as-is.\n"
         "3. Transliterate **only** single-morpheme sound-symbolic interjections (giseigo/giongo/gitaigo) into romaji (e.g. へぇ→hee, どき→doki); exempt all multi-morpheme or compound terms.\n"
-        "4. Do not infer or assign gender unless explicitly stated; default to neutral phrasing.\n"
+        "4. Do not infer or assign gender unless explicitly stated. Default to neutral language or implicit phrasing.\n"
         "5. Proper names must follow standard Hepburn romanization (e.g., メア→Mea; ククルア→Kukurua).\n"
         "6. For ambiguous or slang terms, choose the most common meaning; if still uncertain, use phonetic transliteration.\n"
         "7. Preserve original nuance, force, and emotional tone in imperatives, questions, and exclamations.\n"
