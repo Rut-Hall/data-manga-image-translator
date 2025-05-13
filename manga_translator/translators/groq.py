@@ -32,7 +32,7 @@ class GroqTranslator(CommonTranslator):
         "Analyze panels in sequence to capture tone, relationships, and narrative flow.\n\n"
         "Obey these rules:\n"
         "1. Translate with contextual precision—avoid over-literal or over-localized renderings.\n"
-        "2. Do not infer or assign gender unless explicitly stated. Default to neutral language or implicit phrasing.\n"
+        "2. Never assign gender unless stated; for ambiguous referents, use neutral phrasing (they/them, that person/kid).\n"
         "3. Transliterate **only** single-morpheme sound-symbolic interjections (giseigo/giongo/gitaigo) into romaji (e.g. へぇ→hee, どき→doki); exempt all multi-morpheme or compound terms.\n"
         "4. Preserve honorifics, Japanese names, and cultural expressions as-is.\n"
         "5. Proper names must follow standard Hepburn romanization (e.g., メア→Mea; ククルア→Kukurua).\n"
@@ -44,6 +44,20 @@ class GroqTranslator(CommonTranslator):
         "Translate now into {to_lang} and return only JSON."
     )
 
+    # ------------------------------------------------------------------
+    # Fixed glossary for forcing neutral terms
+    _GLOSSARY_SNIPPET = """
+    GLOSSARY (fixed mappings):
+      あの子   → THAT KID
+      あの人   → THAT PERSON
+      やつ     → THAT PERSON
+      彼ら     → THEY
+      彼女ら   → THEY
+
+    """
+    # ------------------------------------------------------------------
+
+    
     _CHAT_SAMPLE = [
         (
             'Translate into English. Return result in JSON.\n'
@@ -111,6 +125,7 @@ class GroqTranslator(CommonTranslator):
         system_msg = {
             'role': 'system',
             'content': self.chat_system_template.format(to_lang=to_lang)
+                       + self._GLOSSARY_SNIPPET
         }
 
         # 3) Call the API
