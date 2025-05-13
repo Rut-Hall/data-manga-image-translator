@@ -32,7 +32,7 @@ class GroqTranslator(CommonTranslator):
         "Analyze panels in sequence to capture tone, relationships, and narrative flow.\n\n"
         "Obey these rules:\n"
         "1. Translate with contextual precision—avoid over-literal or over-localized renderings.\n"
-        "2. Never assign gender unless stated; for ambiguous referents, use neutral phrasing (they/them, that person/kid).\n"
+        "2. Only assign gender when stated; otherwise, default to neutral phrasing (they/them, that person/kid).\n"
         "3. Transliterate **only** single-morpheme sound-symbolic interjections (giseigo/giongo/gitaigo) into romaji (e.g. へぇ→hee, どき→doki); exempt all multi-morpheme or compound terms.\n"
         "4. Preserve honorifics, Japanese names, and cultural expressions as-is.\n"
         "5. Proper names must follow standard Hepburn romanization (e.g., メア→Mea; ククルア→Kukurua).\n"
@@ -53,6 +53,10 @@ class GroqTranslator(CommonTranslator):
       やつ     → THAT PERSON
       彼ら     → THEY
       彼女ら   → THEY
+      男の子   → THAT BOY
+      女の子   → THAT GIRL
+      彼       → HE
+      彼女     → SHE
 
     """
     # ------------------------------------------------------------------
