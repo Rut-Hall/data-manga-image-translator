@@ -32,7 +32,7 @@ class GroqTranslator(CommonTranslator):
         "Analyze panels in sequence to capture tone, relationships, and narrative flow.\n\n"
         "Obey these rules:\n"
         "1. Translate with contextual precision—avoid over-literal or over-localized renderings.\n"
-        "2. Only assign gender when stated; otherwise, default to neutral phrasing (they/them, that person/kid).\n"
+        "2. Only assign gender when explicitly marked; otherwise default to neutral or implicit phrasing (they/them, that person/kid, or omit implicit subjects).\n"
         "3. Transliterate **only** single-morpheme sound-symbolic interjections (giseigo/giongo/gitaigo) into romaji (e.g. へぇ→hee, どき→doki); exempt all multi-morpheme or compound terms.\n"
         "4. Preserve honorifics, Japanese names, and cultural expressions as-is.\n"
         "5. Proper names must follow standard Hepburn romanization (e.g., メア→Mea; ククルア→Kukurua).\n"
