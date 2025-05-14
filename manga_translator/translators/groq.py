@@ -44,6 +44,20 @@ class GroqTranslator(CommonTranslator):
         "Translate now into {to_lang} and return only JSON."
     )
 
+    _GLOSSARY_SNIPPET = """
+    GLOSSARY (fixed mappings):
+      あの子   → THAT KID
+      あの人   → THAT PERSON
+      やつ     → THAT PERSON
+      彼ら     → THEY
+      彼女ら   → THEY
+      男の子   → THAT BOY
+      女の子   → THAT GIRL
+      彼       → HE
+      彼女     → SHE
+
+    """
+
     _CHAT_SAMPLE = [
         (
             'Translate into English. Return result in JSON.\n'
@@ -111,6 +125,7 @@ class GroqTranslator(CommonTranslator):
         system_msg = {
             'role': 'system',
             'content': self.chat_system_template.format(to_lang=to_lang)
+                       + self._GLOSSARY_SNIPPET
         }
 
         # 3) Call the API
