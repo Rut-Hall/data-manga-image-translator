@@ -49,10 +49,8 @@ class GroqTranslator(CommonTranslator):
       あの子   → THAT KID
       あの人   → THAT PERSON
       やつ     → THAT PERSON
-      彼ら     → THEY
-      彼女ら   → THEY
-      男の子   → THAT BOY
-      女の子   → THAT GIRL
+      男の子   → BOY
+      女の子   → GIRL
       彼       → HE
       彼女     → SHE
 
