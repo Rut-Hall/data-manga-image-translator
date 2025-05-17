@@ -34,7 +34,7 @@ class GroqTranslator(CommonTranslator):
         "1. Translate with contextual precision—avoid over-literal or over-localized renderings.\n"
         "2. Preserve honorifics, Japanese names, and cultural expressions as-is.\n"
         "3. Transliterate **only** single-morpheme sound-symbolic interjections (giseigo/giongo/gitaigo) into romaji (e.g. へぇ→hee, どき→doki); exempt all multi-morpheme or compound terms.\n"
-        "4. Do not infer or assign gender unless explicitly stated. Default to neutral language or implicit phrasing.\n"
+        "4. Only assign gender when explicitly marked; otherwise default to neutral or implicit phrasing (that person/kid, or omit implicit subjects—and only insert a neutral pronoun if English needs one).\n"
         "5. Proper names must follow standard Hepburn romanization (e.g., メア→Mea; ククルア→Kukurua).\n"
         "6. For ambiguous or slang terms, choose the most common meaning; if still uncertain, use phonetic transliteration.\n"
         "7. Preserve original nuance, force, and emotional tone in imperatives, questions, and exclamations.\n"
@@ -49,10 +49,8 @@ class GroqTranslator(CommonTranslator):
       あの子   → THAT KID
       あの人   → THAT PERSON
       やつ     → THAT PERSON
-      彼ら     → THEY
-      彼女ら   → THEY
-      男の子   → THAT BOY
-      女の子   → THAT GIRL
+      男の子   → BOY
+      女の子   → GIRL
       彼       → HE
       彼女     → SHE
 
