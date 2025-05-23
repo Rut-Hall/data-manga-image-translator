@@ -274,22 +274,6 @@ class MangaTranslator:
             ctx.result = ctx.upscaled
             return await self._revert_upscale(config, ctx)
 
-        # Apply pre-dictionary after OCR
-        pre_dict = load_dictionary(self.pre_dict)
-        pre_replacements = []
-        for textline in ctx.textlines:
-            original = textline.text
-            textline.text = apply_dictionary(textline.text, pre_dict)
-            if original != textline.text:
-                pre_replacements.append(f"{original} => {textline.text}")
-
-        if pre_replacements:
-            logger.info("Pre-translation replacements:")
-            for replacement in pre_replacements:
-                logger.info(replacement)
-        else:
-            logger.info("No pre-translation replacements made.")
-
         # -- Textline merge
         await self._report_progress('textline_merge')
         try:
@@ -304,6 +288,22 @@ class MangaTranslator:
             bboxes = visualize_textblocks(cv2.cvtColor(ctx.img_rgb, cv2.COLOR_BGR2RGB), ctx.text_regions)
             cv2.imwrite(self._result_path('bboxes.png'), bboxes)
 
+        # Apply pre-dictionary after textline merge
+        pre_dict = load_dictionary(self.pre_dict)
+        pre_replacements = []
+        for region in ctx.text_regions:
+            original = region.text  
+            region.text = apply_dictionary(region.text, pre_dict)
+            if original != region.text:
+                pre_replacements.append(f"{original} => {region.text}")
+
+        if pre_replacements:
+            logger.info("Pre-translation replacements:")
+            for replacement in pre_replacements:
+                logger.info(replacement)
+        else:
+            logger.info("No pre-translation replacements made.")
+            
         # -- Translation
         await self._report_progress('translating')
         try:
@@ -458,6 +458,9 @@ class MangaTranslator:
         self._model_usage_timestamps[("textline_merge", "textline_merge")] = current_time
         text_regions = await dispatch_textline_merge(ctx.textlines, ctx.img_rgb.shape[1], ctx.img_rgb.shape[0],
                                                      verbose=self.verbose)
+        for region in text_regions:
+            if not hasattr(region, "text_raw"):
+                region.text_raw = region.text      # <- Save the initial OCR results to expand the render detection box. Also, prevent affecting the forbidden translation function.       
         # Filter out languages to skip  
         if config.translator.skip_lang is not None:  
             skip_langs = [lang.strip().upper() for lang in config.translator.skip_lang.split(',')]  
@@ -570,8 +573,8 @@ class MangaTranslator:
               
             region.text = stripped_text.strip()     
             
-            if len(region.text) >= config.ocr.min_text_length \
-                    and not is_valuable_text(region.text) \
+            if len(region.text) < config.ocr.min_text_length \
+                    or not is_valuable_text(region.text) \
                     or (not config.translator.no_text_lang_skip and langcodes.tag_distance(region.source_lang, config.translator.target_lang) == 0):
                 if region.text.strip():
                     logger.info(f'Filtered out: {region.text}')
@@ -589,9 +592,12 @@ class MangaTranslator:
         text_regions = new_text_regions
 
 
-        # Sort ctd (comic text detector) regions left to right. Otherwise right to left.
-        # Sorting will improve text translation quality.
-        text_regions = sort_regions(text_regions, right_to_left=True if config.detector.detector != Detector.ctd else False)
+        text_regions = sort_regions(
+            text_regions,
+            right_to_left=config.render.rtl,
+            img=ctx.img_rgb
+        )   
+        
         return text_regions
 
     async def _run_text_translation(self, config: Config, ctx: Context):
@@ -612,14 +618,8 @@ class MangaTranslator:
                 region.translation = ""  # 空翻译将创建空白区域 / Empty translation will create blank areas  
                 region.target_lang = config.translator.target_lang  
                 region._alignment = config.render.alignment  
-                region._direction = config.render.direction   
-            
-            # 如果有prep_manual标志，则保留所有文本区域不进行过滤  
-            # If prep_manual flag is present, keep all text regions without filtering  
-            if self.prep_manual:  
-                return ctx.text_regions  
-            # 如果没有prep_manual标志，继续执行后续代码进行过滤  
-            # If no prep_manual flag, continue to filtering logic below  
+                region._direction = config.render.direction    
+            return ctx.text_regions  
 
         # 以下翻译处理仅在非none翻译器或有none翻译器但没有prep_manual时执行  
         # Translation processing below only happens for non-none translator or none translator without prep_manual  
