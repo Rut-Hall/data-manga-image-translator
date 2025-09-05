@@ -104,7 +104,13 @@ class GroqTranslator(CommonTranslator):
         results = []
         for prompt in queries:
             response = await self._request_translation(to_lang, prompt)
-            results.append(response.get("translated", ""))
+            translated_text = response.get("translated", "")
+            
+            # This line fixes the apostrophe problem by replacing the curly ’ with a straight '.
+            final_text = translated_text.replace("’", "'")
+            
+            results.append(final_text)
+            
         self.logger.info(f'Used {self.token_count_last} tokens (Total: {self.token_count})')
         return results
 
