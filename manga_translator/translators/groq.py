@@ -152,24 +152,42 @@ class GroqTranslator(CommonTranslator):
         try:
             data = json.loads(json_str)
         except json.JSONDecodeError:
-            # Fallback for malformed JSON.
-            # This is where the fix is applied.
             self.logger.warning(f"Malformed JSON received, attempting to fix: {json_str}")
+            # Fallback for malformed JSON.
+            # This is the improved logic.
+
+            # Find the last occurrence of "translated": and extract the content after it.
+            # This is to handle cases of nested/broken JSON.
+            search_key = '"translated":'
+            last_occurrence_index = json_str.rfind(search_key)
             
-            # This more robust regex looks for the "translated" key and captures the value after it.
-            match = re.search(r'"?translated"?\s*:\s*"(.*)', json_str, re.DOTALL)
-            if match:
-                # If a match is found, we get the captured group and clean it up.
-                translation = match.group(1)
-                # Remove trailing characters that might break the output
-                translation = translation.rstrip('"}').strip()
-                # In case there's a leading quote, remove it.
-                if translation.startswith('"'):
-                    translation = translation[1:]
+            if last_occurrence_index != -1:
+                # Start after "translated":
+                start_index = last_occurrence_index + len(search_key)
+                # Extract the rest of the string
+                translation_part = json_str[start_index:].strip()
+                
+                # Clean up the extracted part to get just the translated text.
+                # Remove leading and trailing JSON-like characters.
+                translation = translation_part.strip(' \'"{}')
+                
+                # In case of nested JSON, the key might be present again.
+                # This is a key part of the fix.
+                if translation.lower().startswith('{"translated":'):
+                    translation = translation[len('{"translated":'):].strip(' \'"{}')
+
+                # Clean up any remaining closing characters
+                if translation.endswith('"}'):
+                    translation = translation[:-2].strip()
+                elif translation.endswith('"'):
+                    translation = translation[:-1].strip()
+
                 data = {"translated": translation}
             else:
-                # If the regex fails, we use a very simple cleanup as a last resort.
-                data = {"translated": json_str.strip(' \'"{}')}
+                # If "translated": is not found, do a very simple cleanup
+                fallback = json_str.strip(' \'"{}')
+                data = {"translated": fallback}
+
 
         # 9) Context retention
         if self._CONTEXT_RETENTION:
