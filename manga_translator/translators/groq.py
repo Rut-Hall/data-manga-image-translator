@@ -152,10 +152,24 @@ class GroqTranslator(CommonTranslator):
         try:
             data = json.loads(json_str)
         except json.JSONDecodeError:
-            # Fallback: remove any leading 'translated":'
-            fallback = re.sub(r'^\s*"?translated"?\s*:\s*', '', json_str)
-            fallback = fallback.strip(' \'"{}')
-            data = {"translated": fallback}
+            # Fallback for malformed JSON.
+            # This is where the fix is applied.
+            self.logger.warning(f"Malformed JSON received, attempting to fix: {json_str}")
+            
+            # This more robust regex looks for the "translated" key and captures the value after it.
+            match = re.search(r'"?translated"?\s*:\s*"(.*)', json_str, re.DOTALL)
+            if match:
+                # If a match is found, we get the captured group and clean it up.
+                translation = match.group(1)
+                # Remove trailing characters that might break the output
+                translation = translation.rstrip('"}').strip()
+                # In case there's a leading quote, remove it.
+                if translation.startswith('"'):
+                    translation = translation[1:]
+                data = {"translated": translation}
+            else:
+                # If the regex fails, we use a very simple cleanup as a last resort.
+                data = {"translated": json_str.strip(' \'"{}')}
 
         # 9) Context retention
         if self._CONTEXT_RETENTION:
