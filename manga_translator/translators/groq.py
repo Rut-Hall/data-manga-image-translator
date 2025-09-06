@@ -3,6 +3,7 @@ import os
 import json
 import re
 import asyncio
+from groq import RateLimitError
 from typing import List
 
 from .common import CommonTranslator, MissingAPIKeyException
@@ -79,6 +80,7 @@ class GroqTranslator(CommonTranslator):
             {'role': 'user', 'content': self.chat_sample[0]},
             {'role': 'assistant', 'content': self.chat_sample[1]}
         ]
+        self.daily_limit_reached = False
 
     def _config_get(self, key: str, default=None):
         if not self.config:
@@ -104,6 +106,11 @@ class GroqTranslator(CommonTranslator):
     async def _translate(self, from_lang: str, to_lang: str, queries: List[str]) -> List[str]:
         results = []
         for prompt in queries:
+            # NEW: If the daily limit was hit, stop trying to translate more text
+            if self.daily_limit_reached:
+                results.append("") # Append empty string for remaining bubbles
+                continue
+
             response = await self._request_translation(to_lang, prompt)
             translated_text = response.get("translated", "")
             
@@ -144,6 +151,21 @@ class GroqTranslator(CommonTranslator):
                     temperature=self.temperature,
                     top_p=self.top_p
                 )
+            # NEW: Specifically catch the RateLimitError
+            except RateLimitError as e:
+                # Check if it's the daily limit (TPD)
+                if "tokens per day" in str(e).lower() or "tpd" in str(e).lower():
+                    self.logger.error("Groq daily token limit reached. Stopping all further translation attempts for this run.")
+                    self.daily_limit_reached = True
+                    return {"translated": ""} # Return empty for the current attempt and stop
+                
+                # If it's a different kind of rate limit (e.g., requests per minute), we can still retry
+                self.logger.error(f"API Rate Limit error on attempt {attempt + 1}: {e}")
+                if attempt < self._RETRY_ATTEMPTS - 1:
+                    await asyncio.sleep(5) # Wait longer for temporary rate limits
+                    continue
+                else:
+                    return {"translated": ""}
             except Exception as e:
                 self.logger.error(f"API call failed on attempt {attempt + 1}: {e}")
                 if attempt < self._RETRY_ATTEMPTS - 1:
@@ -152,6 +174,8 @@ class GroqTranslator(CommonTranslator):
                 else:
                     return {"translated": ""}
 
+            # ... (The rest of the method from step 4 onwards is the same as before) ...
+            
             # 4) Update token usage
             self.token_count += response.usage.total_tokens
             self.token_count_last = response.usage.total_tokens
@@ -160,44 +184,35 @@ class GroqTranslator(CommonTranslator):
             raw = response.choices[0].message.content
             cleaned = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL)
             
-            # 6) NEW ROBUST PARSING LOGIC
+            # 6) Robust Parsing Logic
             data = {}
             translated_text = ""
             try:
-                # First, try to parse it as-is
                 data = json.loads(cleaned)
                 translated_text = data.get("translated", "")
             except json.JSONDecodeError:
                 self.logger.warning(f"Malformed JSON received, attempting aggressive fix: {cleaned}")
-                # If parsing fails, use the new aggressive extraction method
                 search_key = '"translated":'
-                # Find the *last* time "translated": appears in the string
                 last_occurrence = cleaned.rfind(search_key)
                 if last_occurrence != -1:
-                    # Take everything *after* the last "translated":
                     translation_substring = cleaned[last_occurrence + len(search_key):]
-                    # Aggressively strip whitespace, quotes, braces, and brackets
                     translation = translation_substring.strip().strip('\'"{}[]')
                     translated_text = translation
                 else:
-                    # If "translated": is not found at all, just clean the whole string
                     translated_text = cleaned.strip().strip('\'"{}[]')
                 
                 data = {"translated": translated_text}
 
             # 7) Check if the final text is empty and retry if needed
             if translated_text.strip():
-                # SUCCESS: We have a non-empty translation
                 self.messages.append({'role': 'user', 'content': prompt_with_lang})
                 if len(self.messages) > self._MAX_CONTEXT:
                     self.messages = self.messages[-self._MAX_CONTEXT:]
                 if self._CONTEXT_RETENTION:
-                    # We use the original 'cleaned' string for context, not our fixed version
                     json_str_for_context = json.dumps(data) 
                     self.messages.append({'role': 'assistant', 'content': json_str_for_context})
                 return data
             
-            # If we get here, the translation was empty. Log a warning and retry.
             self.logger.warning(f"Empty translation received for '{prompt}' on attempt {attempt + 1}. Retrying...")
             await asyncio.sleep(1)
 
