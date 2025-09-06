@@ -2,6 +2,7 @@ import groq
 import os
 import json
 import re
+import asyncio
 from typing import List
 
 from .common import CommonTranslator, MissingAPIKeyException
@@ -115,92 +116,90 @@ class GroqTranslator(CommonTranslator):
         return results
 
     async def _request_translation(self, to_lang: str, prompt: str) -> dict:
-        # 1) Build the user prompt
-        prompt_with_lang = (
-            f"Translate the following text into {to_lang}. Return the result in JSON format.\n\n"
-            f"{{\"untranslated\": \"{prompt}\"}}\n"
-        )
-        self.messages.append({'role': 'user', 'content': prompt_with_lang})
-        if len(self.messages) > self._MAX_CONTEXT:
-            self.messages = self.messages[-self._MAX_CONTEXT:]
-
-        # 2) System message (with your full template)
-        system_msg = {
-            'role': 'system',
-            'content': self.chat_system_template.format(to_lang=to_lang)
-                       + self._GLOSSARY_SNIPPET
-        }
-
-        # 3) Call the API
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=[system_msg] + self.messages,
-            max_tokens=self._MAX_TOKENS // 2,
-            temperature=self.temperature,
-            top_p=self.top_p
-        )
-
-        # 4) Update token usage
-        self.token_count += response.usage.total_tokens
-        self.token_count_last = response.usage.total_tokens
-
-        # 5) Grab raw output
-        raw = response.choices[0].message.content
-
-        # 6) Strip out any <think>…</think> blocks
-        cleaned = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL)
-
-        # 7) Extract the first JSON object
-        match = re.search(r'\{.*?\}', cleaned, flags=re.DOTALL)
-        json_str = match.group(0) if match else cleaned
-
-        # 8) Parse JSON safely
-        try:
-            data = json.loads(json_str)
-        except json.JSONDecodeError:
-            self.logger.warning(f"Malformed JSON received, attempting to fix: {json_str}")
-            # Fallback for malformed JSON.
-            # This is the improved logic.
-
-            # Find the last occurrence of "translated": and extract the content after it.
-            # This is to handle cases of nested/broken JSON.
-            search_key = '"translated":'
-            last_occurrence_index = json_str.rfind(search_key)
+        for attempt in range(self._RETRY_ATTEMPTS):
+            # 1) Build the user prompt
+            prompt_with_lang = (
+                f"Translate the following text into {to_lang}. Return the result in JSON format.\n\n"
+                f"{{\"untranslated\": \"{prompt}\"}}\n"
+            )
             
-            if last_occurrence_index != -1:
-                # Start after "translated":
-                start_index = last_occurrence_index + len(search_key)
-                # Extract the rest of the string
-                translation_part = json_str[start_index:].strip()
+            temp_messages = list(self.messages)
+            temp_messages.append({'role': 'user', 'content': prompt_with_lang})
+            if len(temp_messages) > self._MAX_CONTEXT:
+                temp_messages = temp_messages[-self._MAX_CONTEXT:]
+
+            # 2) System message
+            system_msg = {
+                'role': 'system',
+                'content': self.chat_system_template.format(to_lang=to_lang)
+                           + self._GLOSSARY_SNIPPET
+            }
+
+            # 3) Call the API
+            try:
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[system_msg] + temp_messages,
+                    max_tokens=self._MAX_TOKENS // 2,
+                    temperature=self.temperature,
+                    top_p=self.top_p
+                )
+            except Exception as e:
+                self.logger.error(f"API call failed on attempt {attempt + 1}: {e}")
+                if attempt < self._RETRY_ATTEMPTS - 1:
+                    await asyncio.sleep(1)
+                    continue
+                else:
+                    return {"translated": ""}
+
+            # 4) Update token usage
+            self.token_count += response.usage.total_tokens
+            self.token_count_last = response.usage.total_tokens
+
+            # 5) Grab raw output and clean it
+            raw = response.choices[0].message.content
+            cleaned = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL)
+            
+            # 6) NEW ROBUST PARSING LOGIC
+            data = {}
+            translated_text = ""
+            try:
+                # First, try to parse it as-is
+                data = json.loads(cleaned)
+                translated_text = data.get("translated", "")
+            except json.JSONDecodeError:
+                self.logger.warning(f"Malformed JSON received, attempting aggressive fix: {cleaned}")
+                # If parsing fails, use the new aggressive extraction method
+                search_key = '"translated":'
+                # Find the *last* time "translated": appears in the string
+                last_occurrence = cleaned.rfind(search_key)
+                if last_occurrence != -1:
+                    # Take everything *after* the last "translated":
+                    translation_substring = cleaned[last_occurrence + len(search_key):]
+                    # Aggressively strip whitespace, quotes, braces, and brackets
+                    translation = translation_substring.strip().strip('\'"{}[]')
+                    translated_text = translation
+                else:
+                    # If "translated": is not found at all, just clean the whole string
+                    translated_text = cleaned.strip().strip('\'"{}[]')
                 
-                # Clean up the extracted part to get just the translated text.
-                # Remove leading and trailing JSON-like characters.
-                translation = translation_part.strip(' \'"{}')
-                
-                # In case of nested JSON, the key might be present again.
-                # This is a key part of the fix.
-                if translation.lower().startswith('{"translated":'):
-                    translation = translation[len('{"translated":'):].strip(' \'"{}')
+                data = {"translated": translated_text}
 
-                # Clean up any remaining closing characters
-                if translation.endswith('"}'):
-                    translation = translation[:-2].strip()
-                elif translation.endswith('"'):
-                    translation = translation[:-1].strip()
+            # 7) Check if the final text is empty and retry if needed
+            if translated_text.strip():
+                # SUCCESS: We have a non-empty translation
+                self.messages.append({'role': 'user', 'content': prompt_with_lang})
+                if len(self.messages) > self._MAX_CONTEXT:
+                    self.messages = self.messages[-self._MAX_CONTEXT:]
+                if self._CONTEXT_RETENTION:
+                    # We use the original 'cleaned' string for context, not our fixed version
+                    json_str_for_context = json.dumps(data) 
+                    self.messages.append({'role': 'assistant', 'content': json_str_for_context})
+                return data
+            
+            # If we get here, the translation was empty. Log a warning and retry.
+            self.logger.warning(f"Empty translation received for '{prompt}' on attempt {attempt + 1}. Retrying...")
+            await asyncio.sleep(1)
 
-                data = {"translated": translation}
-            else:
-                # If "translated": is not found, do a very simple cleanup
-                fallback = json_str.strip(' \'"{}')
-                data = {"translated": fallback}
-
-
-        # 9) Context retention
-        if self._CONTEXT_RETENTION:
-            self.messages.append({'role': 'assistant', 'content': json_str})
-        else:
-            # remove any placeholder assistant message
-            if self.messages and self.messages[-1]['role'] == 'assistant':
-                self.messages.pop()
-
-        return data
+        self.logger.error(f"Failed to get translation for '{prompt}' after {self._RETRY_ATTEMPTS} attempts.")
+        return {"translated": ""}
