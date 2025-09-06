@@ -5,6 +5,9 @@ import copy
 from typing import Union, List
 import time  
 
+# Add this with the other imports near the top
+from ..translators.groq import DailyLimitReachedException
+
 from PIL import Image
 import psutil
 
@@ -124,79 +127,87 @@ class MangaTranslatorLocal(MangaTranslator):
             elif params.get('format') != 'jpg':
                 raise ValueError('--save-quality of lower than 100 is only supported for .jpg files')
 
-        if os.path.isfile(path):
-            # Determine destination file path
-            if not dest:
-                # Use the same folder as the source
-                p, ext = os.path.splitext(path)
-                _dest = f'{p}-translated.{file_ext or ext[1:]}'
-            elif not os.path.basename(dest):
-                p, ext = os.path.splitext(os.path.basename(path))
-                # If the folders differ use the original filename from the source
-                if os.path.dirname(path) != dest:
-                    _dest = os.path.join(dest, f'{p}.{file_ext or ext[1:]}')
+        try: # <--- START OF THE MAIN TRY BLOCK
+            if os.path.isfile(path):
+                # Determine destination file path
+                if not dest:
+                    # Use the same folder as the source
+                    p, ext = os.path.splitext(path)
+                    _dest = f'{p}-translated.{file_ext or ext[1:]}'
+                elif not os.path.basename(dest):
+                    p, ext = os.path.splitext(os.path.basename(path))
+                    # If the folders differ use the original filename from the source
+                    if os.path.dirname(path) != dest:
+                        _dest = os.path.join(dest, f'{p}.{file_ext or ext[1:]}')
+                    else:
+                        _dest = os.path.join(dest, f'{p}-translated.{file_ext or ext[1:]}')
                 else:
-                    _dest = os.path.join(dest, f'{p}-translated.{file_ext or ext[1:]}')
-            else:
-                p, ext = os.path.splitext(dest)
-                _dest = f'{p}.{file_ext or ext[1:]}'
-            await self.translate_file(path, _dest, params,config)
+                    p, ext = os.path.splitext(dest)
+                    _dest = f'{p}.{file_ext or ext[1:]}'
+                await self.translate_file(path, _dest, params,config)
 
-        elif os.path.isdir(path):
-            # Determine destination folder path
-            if path[-1] == '\\' or path[-1] == '/':
-                path = path[:-1]
-            _dest = dest or path + '-translated'
-            if os.path.exists(_dest) and not os.path.isdir(_dest):
-                raise FileExistsError(_dest)
+            elif os.path.isdir(path):
+                # Determine destination folder path
+                if path[-1] == '\\' or path[-1] == '/':
+                    path = path[:-1]
+                _dest = dest or path + '-translated'
+                if os.path.exists(_dest) and not os.path.isdir(_dest):
+                    raise FileExistsError(_dest)
 
-            # 检查是否使用批量处理
-            if self.batch_size > 1:
-                await self._translate_folder_batch(path, _dest, params, config, file_ext)
-            else:
-                # 原有的逐个处理方式
-                start_time = time.time()  # 记录开始时间
-                translated_count = 0
-                for root, subdirs, files in os.walk(path):
-                    files = natural_sort(files)
-                    dest_root = replace_prefix(root, path, _dest)
-                    os.makedirs(dest_root, exist_ok=True)
-                    for f in files:
-                        if f.lower() == '.thumb':
-                            continue
-
-                        file_path = os.path.join(root, f)
-                        output_dest = replace_prefix(file_path, path, _dest)
-                        p, ext = os.path.splitext(output_dest)
-                        output_dest = f'{p}.{file_ext or ext[1:]}'
-                        try:
-                            if await self.translate_file(file_path, output_dest, params, config):
-                                translated_count += 1
-                        except Exception as e:
-                            logger.error(e)
-                            raise e
-                
-                # 计算总耗时
-                total_time = time.time() - start_time
-                
-                if translated_count == 0:
-                    logger.info('No further untranslated files found. Use --overwrite to write over existing translations.')
+                # 检查是否使用批量处理
+                if self.batch_size > 1:
+                    await self._translate_folder_batch(path, _dest, params, config, file_ext)
                 else:
-                    # 格式化时间显示
-                    if total_time >= 3600:  
-                        time_str = f"{total_time/3600:.1f} hours"
-                    elif total_time >= 60:  
-                        time_str = f"{total_time/60:.1f} minutes"
-                    else:  
-                        time_str = f"{total_time:.1f} seconds"
+                    # 原有的逐个处理方式
+                    start_time = time.time()  # 记录开始时间
+                    translated_count = 0
+                    for root, subdirs, files in os.walk(path):
+                        files = natural_sort(files)
+                        dest_root = replace_prefix(root, path, _dest)
+                        os.makedirs(dest_root, exist_ok=True)
+                        for f in files:
+                            if f.lower() == '.thumb':
+                                continue
+
+                            file_path = os.path.join(root, f)
+                            output_dest = replace_prefix(file_path, path, _dest)
+                            p, ext = os.path.splitext(output_dest)
+                            output_dest = f'{p}.{file_ext or ext[1:]}'
+                            try:
+                                if await self.translate_file(file_path, output_dest, params, config):
+                                    translated_count += 1
+                            except Exception as e:
+                                # We let other exceptions bubble up to be caught by the main handler,
+                                # but we re-raise the DailyLimitReachedException specifically.
+                                if isinstance(e, DailyLimitReachedException):
+                                    raise
+                                logger.error(e)
                     
-                    logger.info(f'Done. Translated {translated_count} image{"" if translated_count == 1 else "s"} in {time_str}')
-                    logger.info(f'Results saved to: "{_dest}"')
-                    try:
-                        if ENABLE_COMPLETION_SOUND:
-                            play_completion_sound()
-                    except Exception as e:
-                        logger.debug(f'Failed to play completion sound: {e}')
+                    # 计算总耗时
+                    total_time = time.time() - start_time
+                    
+                    if translated_count == 0:
+                        logger.info('No further untranslated files found. Use --overwrite to write over existing translations.')
+                    else:
+                        # 格式化时间显示
+                        if total_time >= 3600:  
+                            time_str = f"{total_time/3600:.1f} hours"
+                        elif total_time >= 60:  
+                            time_str = f"{total_time/60:.1f} minutes"
+                        else:  
+                            time_str = f"{total_time:.1f} seconds"
+                        
+                        logger.info(f'Done. Translated {translated_count} image{"" if translated_count == 1 else "s"} in {time_str}')
+                        logger.info(f'Results saved to: "{_dest}"')
+                        try:
+                            if ENABLE_COMPLETION_SOUND:
+                                play_completion_sound()
+                        except Exception as e:
+                            logger.debug(f'Failed to play completion sound: {e}')
+        
+        except DailyLimitReachedException as e: # <--- THE CATCH BLOCK TO STOP THE PROGRAM
+            logger.error(f"A fatal translation error occurred: {e}")
+            logger.error("The program will now stop. Please wait for the API limit to reset or check your configuration.")
 
     async def translate_file(self, path: str, dest: str, params: dict, config: Config):
         if not params.get('overwrite') and os.path.exists(dest):
