@@ -113,8 +113,11 @@ class GroqTranslator(CommonTranslator):
             response = await self._request_translation(to_lang, prompt)
             translated_text = response.get("translated", "")
             
-            # Fix apostrophes
+            # This line fixes the apostrophe problem
             final_text = translated_text.replace("’", "'")
+            
+            # NEW: This line fixes the long dash problem
+            final_text = final_text.replace("——", "-").replace("--", "-")
             
             # Logic to detect consecutive silent failures
             if not final_text.strip():
