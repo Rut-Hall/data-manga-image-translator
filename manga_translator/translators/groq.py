@@ -116,15 +116,17 @@ class GroqTranslator(CommonTranslator):
             # This line fixes the apostrophe problem
             final_text = translated_text.replace("’", "'")
             
-            # NEW: This line fixes the long dash problem
-            final_text = final_text.replace("——", "-").replace("--", "-")
+            # UPDATED: This line now fixes all dash problems
+            final_text = final_text.replace("——", "-").replace("--", "-").replace("――", "-")
             
             # Logic to detect consecutive silent failures
             if not final_text.strip():
                 consecutive_empty_responses += 1
             else:
-                consecutive_empty_responses = 0
+                # Reset the counter if we get a successful translation
+                consecutive_empty_responses = 0 
 
+            # If the counter reaches our threshold (10), we stop everything.
             if consecutive_empty_responses >= 10:
                 raise DailyLimitReachedException("Received 10 consecutive empty translations, assuming silent API limit.")
             
