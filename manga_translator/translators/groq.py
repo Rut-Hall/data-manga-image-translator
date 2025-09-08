@@ -3,14 +3,14 @@ import os
 import json
 import re
 from typing import List
-from groq import RateLimitError
+from groq import RateLimitError, APIStatusError
 import asyncio
 
 from .common import CommonTranslator, MissingAPIKeyException
 from .keys import GROQ_API_KEY, GROQ_MODEL
 
 class DailyLimitReachedException(Exception):
-    """Custom exception to signal that the daily API limit has been reached."""
+    """Custom exception to signal that a fatal, non-recoverable API error has occurred."""
     pass
 
 class GroqTranslator(CommonTranslator):
@@ -113,20 +113,14 @@ class GroqTranslator(CommonTranslator):
             response = await self._request_translation(to_lang, prompt)
             translated_text = response.get("translated", "")
             
-            # This line fixes the apostrophe problem
             final_text = translated_text.replace("’", "'")
-            
-            # UPDATED: This line now fixes all dash problems
             final_text = final_text.replace("——", "-").replace("--", "-").replace("――", "-")
             
-            # Logic to detect consecutive silent failures
             if not final_text.strip():
                 consecutive_empty_responses += 1
             else:
-                # Reset the counter if we get a successful translation
-                consecutive_empty_responses = 0 
+                consecutive_empty_responses = 0
 
-            # If the counter reaches our threshold (10), we stop everything.
             if consecutive_empty_responses >= 10:
                 raise DailyLimitReachedException("Received 10 consecutive empty translations, assuming silent API limit.")
             
@@ -170,8 +164,20 @@ class GroqTranslator(CommonTranslator):
                     continue
                 else:
                     return {"translated": ""}
-            except Exception as e:
+            except APIStatusError as e:
+                # NEW: Catch the "Organization has been restricted" error
+                if "organization has been restricted" in str(e).lower():
+                    raise DailyLimitReachedException("Groq organization has been restricted. Please check your account status.")
+                
+                # For other API errors, we log and retry
                 self.logger.error(f"API call failed on attempt {attempt + 1}: {e}")
+                if attempt < self._RETRY_ATTEMPTS - 1:
+                    await asyncio.sleep(1)
+                    continue
+                else:
+                    return {"translated": ""}
+            except Exception as e:
+                self.logger.error(f"An unexpected error occurred on attempt {attempt + 1}: {e}")
                 if attempt < self._RETRY_ATTEMPTS - 1:
                     await asyncio.sleep(1)
                     continue
